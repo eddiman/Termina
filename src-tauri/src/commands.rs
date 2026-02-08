@@ -437,6 +437,15 @@ pub fn kill_by_ports(ports: String) -> Result<u32, String> {
 }
 
 #[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn quit_app(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Kill all running processes
     if let Ok(mut processes) = state.processes.lock() {

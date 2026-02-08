@@ -79,4 +79,6 @@ export const api = {
 
   updateShellSettings: (shellPath: string | null, initScript: string | null) =>
     invoke<void>('update_shell_settings', { shellPath, initScript }),
+
+  openUrl: (url: string) => invoke<void>('open_url', { url }),
 };

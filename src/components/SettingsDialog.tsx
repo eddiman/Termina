@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from '../lib/api';
 import { statuses, runningCount } from '../lib/store';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -264,7 +263,7 @@ export function SettingsDialog({ onClose }: Props) {
           </div>
           <div style={{ marginTop: '8px' }}>
             <span
-              onClick={() => openUrl('https://github.com/eddiman/Termina/blob/main/SHELL_SETUP.md')}
+              onClick={() => api.openUrl('https://github.com/eddiman/Termina/blob/main/SHELL_SETUP.md')}
               style={{
                 fontSize: '1.125rem',
                 color: 'var(--gold-dim)',
