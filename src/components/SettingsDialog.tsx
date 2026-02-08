@@ -1,7 +1,19 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../lib/api';
 import { statuses, runningCount } from '../lib/store';
+import { ConfirmDialog } from './ConfirmDialog';
+
+const PRESETS: { label: string; value: string }[] = [
+  { label: 'Custom', value: '' },
+  { label: 'nvm', value: 'export NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' },
+  { label: 'fnm', value: 'eval "$(fnm env)"' },
+  { label: 'Homebrew PATH', value: 'eval "$(/opt/homebrew/bin/brew shellenv)"' },
+  { label: 'Source ~/.zshrc', value: '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null' },
+  { label: 'Source ~/.bashrc', value: '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" 2>/dev/null' },
+  { label: 'pyenv', value: 'eval "$(pyenv init -)"' },
+  { label: 'rbenv', value: 'eval "$(rbenv init -)"' },
+];
 
 interface Props {
   onClose: () => void;
@@ -13,22 +25,48 @@ export function SettingsDialog({ onClose }: Props) {
   const [orphanResult, setOrphanResult] = useState<string | null>(null);
   const [portInput, setPortInput] = useState('');
   const [portResult, setPortResult] = useState<string | null>(null);
+  const [shellPath, setShellPath] = useState('');
+  const [initScript, setInitScript] = useState('');
+  const [shellSaved, setShellSaved] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Track the last-saved values to detect unsaved changes
+  const savedShellPath = useRef('');
+  const savedInitScript = useRef('');
+
+  const isDirty = shellPath !== savedShellPath.current || initScript !== savedInitScript.current;
 
   useEffect(() => {
     isEnabled().then(setAutoStartEnabled).catch(() => {});
+    api.getShellSettings().then((s) => {
+      const sp = s.shell_path ?? '';
+      const is = s.init_script ?? '';
+      setShellPath(sp);
+      setInitScript(is);
+      savedShellPath.current = sp;
+      savedInitScript.current = is;
+    }).catch(() => {});
   }, []);
+
+  const tryClose = () => {
+    if (isDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') tryClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [shellPath, initScript]);
 
   const handleOverlayClick = (e: Event) => {
     if ((e.target as HTMLElement).classList.contains('command-form-overlay')) {
-      onClose();
+      tryClose();
     }
   };
 
@@ -151,7 +189,105 @@ export function SettingsDialog({ onClose }: Props) {
             </div>
           )}
         </div>
+        <div style={{ borderTop: '2px solid var(--border)', marginTop: '10px', paddingTop: '10px' }}>
+          <div class="settings-label" style={{ marginBottom: '8px' }}>
+            <span class="settings-title">Shell</span>
+            <span class="settings-desc">Shell used to run commands (e.g. /bin/zsh, /bin/bash)</span>
+          </div>
+          <input
+            value={shellPath}
+            onInput={(e) => { setShellPath((e.target as HTMLInputElement).value); setShellSaved(false); }}
+            placeholder="$SHELL or /bin/zsh"
+            style={{ width: '100%', marginBottom: '10px' }}
+          />
+          <div class="settings-label" style={{ marginBottom: '8px' }}>
+            <span class="settings-title">Init Script</span>
+            <span class="settings-desc">Script to run before each command. Use this to set up your PATH, source shell configs, or unset conflicting variables.</span>
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <select
+              style={{
+                fontFamily: 'var(--font-pixel)',
+                fontSize: '1.125rem',
+                padding: '6px 8px',
+                border: '2px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                backgroundColor: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
+              onChange={(e) => {
+                const val = (e.target as HTMLSelectElement).value;
+                if (val) {
+                  setInitScript(val);
+                  setShellSaved(false);
+                }
+              }}
+              value=""
+            >
+              <option value="" disabled>Load a preset...</option>
+              {PRESETS.filter(p => p.value !== '').map((p) => (
+                <option key={p.label} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            value={initScript}
+            onInput={(e) => { setInitScript((e.target as HTMLTextAreaElement).value); setShellSaved(false); }}
+            placeholder={'[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null'}
+            rows={3}
+            style={{ width: '100%', resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+            <button
+              class="btn-primary"
+              onClick={async () => {
+                try {
+                  await api.updateShellSettings(
+                    shellPath || null,
+                    initScript || null,
+                  );
+                  savedShellPath.current = shellPath;
+                  savedInitScript.current = initScript;
+                  setShellSaved(true);
+                } catch (err) {
+                  console.error('Failed to save shell settings:', err);
+                }
+              }}
+            >
+              Save
+            </button>
+            {shellSaved && (
+              <span style={{ fontSize: '1.125rem', color: 'var(--text-secondary)' }}>Saved. Changes apply to newly started commands.</span>
+            )}
+          </div>
+          <div style={{ marginTop: '8px' }}>
+            <a
+              href="https://github.com/eddiman/Termina/blob/main/SHELL_SETUP.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: '1.125rem',
+                color: 'var(--gold-dim)',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+              }}
+            >
+              See SHELL_SETUP.md for more examples
+            </a>
+          </div>
+        </div>
       </div>
+      {showDiscardConfirm && (
+        <ConfirmDialog
+          title="Unsaved Changes"
+          message="You have unsaved shell settings. Discard changes?"
+          confirmLabel="Discard"
+          danger
+          onConfirm={onClose}
+          onCancel={() => setShowDiscardConfirm(false)}
+        />
+      )}
     </div>
   );
 }

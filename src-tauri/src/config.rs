@@ -1,4 +1,4 @@
-use crate::types::CommandEntry;
+use crate::types::{CommandEntry, ShellSettings};
 use std::fs;
 use std::path::PathBuf;
 
@@ -45,6 +45,8 @@ pub fn clear_running_pids() {
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct Config {
     commands: Vec<CommandEntry>,
+    #[serde(default)]
+    shell_settings: ShellSettings,
 }
 
 pub fn load_commands() -> Vec<CommandEntry> {
@@ -64,9 +66,40 @@ pub fn load_commands() -> Vec<CommandEntry> {
 
 pub fn save_commands(commands: &[CommandEntry]) -> Result<(), String> {
     let path = get_config_path();
+    // Load existing config to preserve shell_settings
+    let existing = load_config();
     let config = Config {
         commands: commands.to_vec(),
+        shell_settings: existing.shell_settings,
     };
+
+    let json = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    fs::write(&path, json).map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(())
+}
+
+fn load_config() -> Config {
+    let path = get_config_path();
+    if !path.exists() {
+        return Config::default();
+    }
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn load_shell_settings() -> ShellSettings {
+    load_config().shell_settings
+}
+
+pub fn save_shell_settings(settings: &ShellSettings) -> Result<(), String> {
+    let path = get_config_path();
+    let mut config = load_config();
+    config.shell_settings = settings.clone();
 
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;

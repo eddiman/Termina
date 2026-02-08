@@ -1,7 +1,7 @@
 use crate::config;
 use crate::process_manager::{check_process_status, kill_process_group, spawn_command, spawn_log_reader, ProcessCheckResult};
 use crate::tray;
-use crate::types::{AppState, CommandEntry, CommandType, HealthStatus, LogBuffer, LogLine, ProcessStatus, RunningProcess};
+use crate::types::{AppState, CommandEntry, CommandType, HealthStatus, LogBuffer, LogLine, ProcessStatus, RunningProcess, ShellSettings};
 use std::collections::HashMap;
 use tauri::State;
 use uuid::Uuid;
@@ -46,8 +46,14 @@ pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, A
         logs.insert(id.clone(), LogBuffer::new(500));
     }
 
+    // Read shell settings
+    let (shell_path, init_script) = {
+        let settings = state.shell_settings.lock().map_err(|e| e.to_string())?;
+        (settings.effective_shell(), settings.effective_init_script().to_string())
+    };
+
     // Spawn new process
-    let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env)?;
+    let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env, &shell_path, &init_script)?;
 
     // Start log readers
     spawn_log_reader(id.clone(), &mut spawned.child, state.logs.clone());
@@ -123,7 +129,13 @@ pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_,
         logs.insert(id.clone(), LogBuffer::new(500));
     }
 
-    let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env)?;
+    // Read shell settings
+    let (shell_path, init_script) = {
+        let settings = state.shell_settings.lock().map_err(|e| e.to_string())?;
+        (settings.effective_shell(), settings.effective_init_script().to_string())
+    };
+
+    let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env, &shell_path, &init_script)?;
 
     // Start log readers
     spawn_log_reader(id.clone(), &mut spawned.child, state.logs.clone());
@@ -142,6 +154,28 @@ pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_,
     sync_pid_file(&state);
     tray::update_tray_menu(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_shell_settings(state: State<'_, AppState>) -> Result<ShellSettings, String> {
+    let settings = state.shell_settings.lock().map_err(|e| e.to_string())?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn update_shell_settings(
+    shell_path: Option<String>,
+    init_script: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let new_settings = ShellSettings {
+        shell_path,
+        init_script,
+    };
+    config::save_shell_settings(&new_settings)?;
+    let mut settings = state.shell_settings.lock().map_err(|e| e.to_string())?;
+    *settings = new_settings;
     Ok(())
 }
 

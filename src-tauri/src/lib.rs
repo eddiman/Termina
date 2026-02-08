@@ -34,13 +34,19 @@ fn auto_start_enabled_commands(state: &AppState) {
         }
     };
 
+    let (shell_path, init_script) = if let Ok(settings) = state.shell_settings.lock() {
+        (settings.effective_shell(), settings.effective_init_script().to_string())
+    } else {
+        (std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()), String::new())
+    };
+
     for (id, cwd, cmd, env) in commands_to_start {
         // Init log buffer
         if let Ok(mut logs) = state.logs.lock() {
             logs.insert(id.clone(), LogBuffer::new(500));
         }
 
-        if let Ok(mut spawned) = spawn_command(&cwd, &cmd, &env) {
+        if let Ok(mut spawned) = spawn_command(&cwd, &cmd, &env, &shell_path, &init_script) {
             // Start log readers
             spawn_log_reader(id.clone(), &mut spawned.child, state.logs.clone());
 
@@ -234,7 +240,7 @@ pub fn run() {
     // Kill any orphaned processes from a previous crash
     cleanup_orphaned_processes();
 
-    let state = AppState::new(config::load_commands());
+    let state = AppState::new(config::load_commands(), config::load_shell_settings());
 
     // Auto-start enabled commands
     auto_start_enabled_commands(&state);
@@ -268,6 +274,8 @@ pub fn run() {
             commands::kill_orphaned_processes,
             commands::kill_by_ports,
             commands::quit_app,
+            commands::get_shell_settings,
+            commands::update_shell_settings,
         ])
         .setup(|app| {
             // Set up custom app menu (replaces default macOS menu)

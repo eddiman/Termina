@@ -16,12 +16,17 @@ pub fn spawn_command(
     cwd: &str,
     cmd: &str,
     env: &HashMap<String, String>,
+    shell_path: &str,
+    init_script: &str,
 ) -> Result<SpawnedProcess, String> {
-    let exec_cmd = format!("exec {}", cmd);
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut command = Command::new(&shell);
+    let full_cmd = if init_script.is_empty() {
+        cmd.to_string()
+    } else {
+        format!("{}; {}", init_script, cmd)
+    };
+    let mut command = Command::new(shell_path);
     command
-        .args(["-l", "-c", &exec_cmd])
+        .args(["-l", "-c", &full_cmd])
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

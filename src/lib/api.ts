@@ -73,4 +73,10 @@ export const api = {
   killByPorts: (ports: string) => invoke<number>('kill_by_ports', { ports }),
 
   quitApp: () => invoke<void>('quit_app'),
+
+  getShellSettings: () =>
+    invoke<{ shell_path: string | null; init_script: string | null }>('get_shell_settings'),
+
+  updateShellSettings: (shellPath: string | null, initScript: string | null) =>
+    invoke<void>('update_shell_settings', { shellPath, initScript }),
 };
