@@ -9,7 +9,7 @@ const PRESETS: { label: string; value: string }[] = [
   { label: 'nvm', value: 'export NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' },
   { label: 'fnm', value: 'eval "$(fnm env)"' },
   { label: 'Homebrew PATH', value: 'eval "$(/opt/homebrew/bin/brew shellenv)"' },
-  { label: 'Source ~/.zshrc', value: '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null' },
+  { label: 'Source ~/.zshrc', value: 'unset npm_config_prefix 2>/dev/null\n[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null' },
   { label: 'Source ~/.bashrc', value: '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" 2>/dev/null' },
   { label: 'pyenv', value: 'eval "$(pyenv init -)"' },
   { label: 'rbenv', value: 'eval "$(rbenv init -)"' },

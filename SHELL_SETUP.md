@@ -43,8 +43,11 @@ eval "$(rbenv init -)"
 ### Source ~/.zshrc
 
 ```sh
+unset npm_config_prefix 2>/dev/null
 [ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null
 ```
+
+> **Note:** The `unset npm_config_prefix` line prevents a common conflict where Homebrew's node sets this variable, which breaks nvm. Always include it if you use both Homebrew and nvm.
 
 ### Source ~/.bashrc
 
@@ -57,6 +60,7 @@ eval "$(rbenv init -)"
 ### Homebrew + nvm
 
 ```sh
+unset npm_config_prefix 2>/dev/null
 eval "$(/opt/homebrew/bin/brew shellenv)"
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -72,6 +76,7 @@ eval "$(pyenv init -)"
 ### Full zshrc (catches everything)
 
 ```sh
+unset npm_config_prefix 2>/dev/null
 [ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc" 2>/dev/null
 ```
 
