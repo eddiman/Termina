@@ -20,19 +20,24 @@ export function App() {
     setupEventListeners();
     setupNotificationPermission();
 
-    // Intercept smart/curly quotes from macOS and replace with straight quotes
-    const handleBeforeInput = (e: InputEvent) => {
-      if (!e.data) return;
-      const cleaned = e.data
+    // Clean smart/curly quotes from macOS after insertion, before Preact sees the value.
+    // Uses capture phase on 'input' so it fires before Preact's onInput handlers.
+    // This avoids the beforeinput + execCommand/value-manipulation feedback loops.
+    const handleInput = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      const value = target.value;
+      const cleaned = value
         .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
         .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
-      if (cleaned !== e.data) {
-        e.preventDefault();
-        document.execCommand('insertText', false, cleaned);
+      if (cleaned !== value) {
+        const pos = target.selectionStart ?? 0;
+        target.value = cleaned;
+        target.selectionStart = target.selectionEnd = pos;
       }
     };
-    document.addEventListener('beforeinput', handleBeforeInput as EventListener);
-    return () => document.removeEventListener('beforeinput', handleBeforeInput as EventListener);
+    document.addEventListener('input', handleInput, true);
+    return () => document.removeEventListener('input', handleInput, true);
   }, []);
 
   const setupNotificationPermission = async () => {

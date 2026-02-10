@@ -2,6 +2,8 @@
 
 A lightweight macOS desktop app for managing long-running shell commands. Start, stop, and monitor your dev servers, build watchers, and background processes from a single place.
 
+![screenshot](https://github.com/eddiman/Termina/releases/download/v0.1.0/screenshot.png)
+
 ## Features
 
 - **Process management** — Start, stop, and restart long-running commands with a click
