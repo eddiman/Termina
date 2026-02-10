@@ -16,7 +16,21 @@ fn cleanup_orphaned_processes() {
         return;
     }
     for pgid in &old_pgids {
-        let _ = kill_process_group(*pgid);
+        // Verify the process was spawned by Termina (sh -c) before killing,
+        // to avoid killing unrelated processes that reused the PID
+        let is_termina_process = std::process::Command::new("ps")
+            .args(["-p", &pgid.to_string(), "-o", "command="])
+            .output()
+            .ok()
+            .map(|out| {
+                let cmd = String::from_utf8_lossy(&out.stdout);
+                cmd.trim().starts_with("sh -c")
+            })
+            .unwrap_or(false);
+
+        if is_termina_process {
+            let _ = kill_process_group(*pgid);
+        }
     }
     config::clear_running_pids();
 }
@@ -37,7 +51,7 @@ fn auto_start_enabled_commands(state: &AppState) {
     let (shell_path, init_script) = if let Ok(settings) = state.shell_settings.lock() {
         (settings.effective_shell(), settings.effective_init_script().to_string())
     } else {
-        (std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()), String::new())
+        (std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string()), String::new())
     };
 
     for (id, cwd, cmd, env) in commands_to_start {
@@ -147,6 +161,9 @@ fn start_process_monitor(app_handle: tauri::AppHandle) {
 
 fn start_health_checker(app_handle: tauri::AppHandle) {
     std::thread::spawn(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
         loop {
             std::thread::sleep(std::time::Duration::from_secs(15));
 
@@ -183,7 +200,13 @@ fn start_health_checker(app_handle: tauri::AppHandle) {
                     continue;
                 }
 
-                let status = match ureq::get(url).call() {
+                // Only allow http/https URLs for health checks
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    updates.push((id.clone(), HealthStatus::Unknown));
+                    continue;
+                }
+
+                let status = match agent.get(url).call() {
                     Ok(response) => {
                         if response.status() >= 200 && response.status() < 400 {
                             HealthStatus::Healthy

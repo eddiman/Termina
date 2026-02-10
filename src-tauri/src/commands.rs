@@ -361,8 +361,22 @@ pub fn kill_orphaned_processes() -> Result<u32, String> {
     for pgid in &pgids {
         // Check if the process group is still alive before killing
         if nix::sys::signal::killpg(nix::unistd::Pid::from_raw(*pgid), None).is_ok() {
-            let _ = kill_process_group(*pgid);
-            killed += 1;
+            // Verify the process was spawned by Termina (sh -c) to avoid killing
+            // unrelated processes that reused the PID
+            let is_termina_process = std::process::Command::new("ps")
+                .args(["-p", &pgid.to_string(), "-o", "command="])
+                .output()
+                .ok()
+                .map(|out| {
+                    let cmd = String::from_utf8_lossy(&out.stdout);
+                    cmd.trim().starts_with("sh -c")
+                })
+                .unwrap_or(false);
+
+            if is_termina_process {
+                let _ = kill_process_group(*pgid);
+                killed += 1;
+            }
         }
     }
     config::clear_running_pids();
@@ -393,11 +407,18 @@ fn parse_ports(spec: &str) -> Result<Vec<u16>, String> {
 }
 
 #[tauri::command]
-pub fn kill_by_ports(ports: String) -> Result<u32, String> {
+pub fn kill_by_ports(ports: String, state: State<'_, AppState>) -> Result<u32, String> {
     let port_list = parse_ports(&ports)?;
     if port_list.is_empty() {
         return Ok(0);
     }
+
+    // Collect known Termina PGIDs to scope kills
+    let known_pgids: std::collections::HashSet<i32> = if let Ok(processes) = state.processes.lock() {
+        processes.values().map(|p| p.pgid).collect()
+    } else {
+        std::collections::HashSet::new()
+    };
 
     let mut killed_pids = std::collections::HashSet::new();
 
@@ -411,11 +432,22 @@ pub fn kill_by_ports(ports: String) -> Result<u32, String> {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 if let Ok(pid) = line.trim().parse::<i32>() {
-                    if pid > 0 && killed_pids.insert(pid) {
+                    if pid <= 0 || !killed_pids.insert(pid) {
+                        continue;
+                    }
+                    // Only kill if the process belongs to a known Termina process group
+                    let pgid = nix::unistd::getpgid(Some(nix::unistd::Pid::from_raw(pid)));
+                    let belongs_to_termina = match pgid {
+                        Ok(pg) => known_pgids.contains(&pg.as_raw()),
+                        Err(_) => false,
+                    };
+                    if belongs_to_termina {
                         let _ = nix::sys::signal::kill(
                             nix::unistd::Pid::from_raw(pid),
                             nix::sys::signal::Signal::SIGTERM,
                         );
+                    } else {
+                        killed_pids.remove(&pid);
                     }
                 }
             }
@@ -438,6 +470,9 @@ pub fn kill_by_ports(ports: String) -> Result<u32, String> {
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Only https:// URLs are allowed".to_string());
+    }
     std::process::Command::new("open")
         .arg(&url)
         .spawn()

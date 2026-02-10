@@ -1,10 +1,11 @@
 use crate::types::{CommandEntry, ShellSettings};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 fn config_dir() -> PathBuf {
     let dir = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+        .expect("Could not determine system config directory")
         .join("termina");
     fs::create_dir_all(&dir).ok();
     dir
@@ -18,12 +19,18 @@ fn get_pids_path() -> PathBuf {
     config_dir().join("running_pids.json")
 }
 
+fn write_private(path: &PathBuf, content: &str) -> Result<(), std::io::Error> {
+    fs::write(path, content)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 pub fn save_running_pids(pgids: &[i32]) {
     let path = get_pids_path();
     if pgids.is_empty() {
         let _ = fs::remove_file(&path);
     } else if let Ok(json) = serde_json::to_string(pgids) {
-        let _ = fs::write(&path, json);
+        let _ = write_private(&path, &json);
     }
 }
 
@@ -76,7 +83,7 @@ pub fn save_commands(commands: &[CommandEntry]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    fs::write(&path, json).map_err(|e| format!("Failed to write config: {}", e))?;
+    write_private(&path, &json).map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())
 }
@@ -104,7 +111,7 @@ pub fn save_shell_settings(settings: &ShellSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    fs::write(&path, json).map_err(|e| format!("Failed to write config: {}", e))?;
+    write_private(&path, &json).map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())
 }
