@@ -31,6 +31,9 @@ pub fn spawn_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Remove npm_config_prefix to avoid nvm conflicts with Homebrew's node
+    command.env_remove("npm_config_prefix");
+
     // Apply custom environment variables (inherits parent env by default)
     for (k, v) in env {
         command.env(k, v);
