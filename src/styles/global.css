@@ -98,10 +98,15 @@ input::placeholder, textarea::placeholder {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  margin-top: 93px;
 }
 
 .app-header {
   display: flex;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   justify-content: space-between;
   align-items: center;
   padding: 38px 16px 12px 16px;
@@ -110,6 +115,7 @@ input::placeholder, textarea::placeholder {
   -webkit-app-region: drag;
   -webkit-user-select: none;
   user-select: none;
+  z-index: 999;
 }
 
 .app-header h1 {
@@ -323,11 +329,18 @@ input::placeholder, textarea::placeholder {
   padding: 0;
   flex-shrink: 0;
   outline: none;
+
+  &:hover {
+    background-color: var(--border-light);
+}
 }
 
 .toggle.active {
   background-color: var(--success);
   border-color: #00cc66;
+    &:hover {
+    border-color: #007f3f;
+}
 }
 
 .toggle::after {

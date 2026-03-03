@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Command, CommandType, ProcessStatus, HealthStatus } from './store';
+import { mockApi } from './mock-api';
 
 export interface LogLine {
   text: string;
@@ -7,7 +8,11 @@ export interface LogLine {
   timestamp: number;
 }
 
-export const api = {
+// In ui-only mode (VITE_UI_ONLY=true) the Tauri backend is unavailable.
+// `api` is transparently swapped to mockApi so all components work unchanged.
+export const isUiOnly = import.meta.env.VITE_UI_ONLY === 'true';
+
+const tauriApi = {
   getCommands: () => invoke<Command[]>('get_commands'),
 
   startCommand: (id: string) => invoke<void>('start_command', { id }),
@@ -82,3 +87,5 @@ export const api = {
 
   openUrl: (url: string) => invoke<void>('open_url', { url }),
 };
+
+export const api = isUiOnly ? mockApi : tauriApi;

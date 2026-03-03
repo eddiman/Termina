@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
-import { api } from '../lib/api';
+import { api, isUiOnly } from '../lib/api';
 import { statuses, runningCount } from '../lib/store';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -37,7 +36,11 @@ export function SettingsDialog({ onClose }: Props) {
   const isDirty = shellPath !== savedShellPath.current || initScript !== savedInitScript.current;
 
   useEffect(() => {
-    isEnabled().then(setAutoStartEnabled).catch(() => {});
+    if (!isUiOnly) {
+      import('@tauri-apps/plugin-autostart').then(({ isEnabled }) =>
+        isEnabled().then(setAutoStartEnabled).catch(() => {})
+      ).catch(() => {});
+    }
     api.getShellSettings().then((s) => {
       const sp = s.shell_path ?? '';
       const is = s.init_script ?? '';
@@ -71,7 +74,9 @@ export function SettingsDialog({ onClose }: Props) {
   };
 
   const toggleAutoStart = async () => {
+    if (isUiOnly) return;
     try {
+      const { enable, disable } = await import('@tauri-apps/plugin-autostart');
       if (autoStartEnabled) {
         await disable();
         setAutoStartEnabled(false);
