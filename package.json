@@ -1,10 +1,11 @@
 {
   "name": "termina",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A lightweight macOS app for managing long-running shell commands",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "ui-only": "VITE_UI_ONLY=true vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"

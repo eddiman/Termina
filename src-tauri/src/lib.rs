@@ -1,8 +1,10 @@
+pub mod cli;
 mod commands;
 mod config;
 mod process_manager;
+pub mod socket;
 mod tray;
-mod types;
+pub mod types;
 
 use crate::process_manager::{check_process_status, kill_process_group, spawn_command, spawn_log_reader, ProcessCheckResult};
 use crate::types::{AppState, CommandType, HealthStatus, LogBuffer, ProcessExitInfo, RunningProcess};
@@ -314,6 +316,9 @@ pub fn run() {
             // Start health checker
             start_health_checker(app.handle().clone());
 
+            // Start CLI socket server
+            socket::start_socket_server(app.handle().clone());
+
             // Register global shortcut (Cmd+Shift+T) to toggle window
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             let handle = app.handle().clone();
@@ -358,6 +363,7 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
                 // Let programmatic exits (app.exit(0)) through
                 if code.is_some() {
+                    let _ = std::fs::remove_file(socket::socket_path());
                     return;
                 }
                 // OS-initiated exit — show confirmation dialog

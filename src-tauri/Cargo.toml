@@ -1,6 +1,6 @@
 [package]
 name = "termina"
-version = "0.1.0"
+version = "0.3.0"
 description = "A lightweight macOS app for managing long-running shell commands"
 authors = ["you"]
 license = "MIT"
@@ -26,3 +26,8 @@ tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 ureq = "2"
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "termina"
+path = "src/cli_main.rs"

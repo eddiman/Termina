@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { listen } from '@tauri-apps/api/event';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { api } from './lib/api';
+import { api, isUiOnly } from './lib/api';
 import { commands, statuses, healthStatuses, isFormOpen, editingCommand, runningCount, selectedCommand, type HealthStatus } from './lib/store';
 import { CommandList } from './components/CommandList';
 import { CommandForm } from './components/CommandForm';
@@ -17,8 +14,11 @@ export function App() {
 
   useEffect(() => {
     loadCommands();
-    setupEventListeners();
-    setupNotificationPermission();
+
+    if (!isUiOnly) {
+      setupEventListeners();
+      setupNotificationPermission();
+    }
 
     // Clean smart/curly quotes from macOS after insertion, before Preact sees the value.
     // Uses capture phase on 'input' so it fires before Preact's onInput handlers.
@@ -41,6 +41,7 @@ export function App() {
   }, []);
 
   const setupNotificationPermission = async () => {
+    const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification');
     let granted = await isPermissionGranted();
     if (!granted) {
       const permission = await requestPermission();
@@ -48,7 +49,10 @@ export function App() {
     }
   };
 
-  const setupEventListeners = () => {
+  const setupEventListeners = async () => {
+    const { listen } = await import('@tauri-apps/api/event');
+    const { isPermissionGranted, sendNotification } = await import('@tauri-apps/plugin-notification');
+
     // Listen for process exit events from the backend monitor
     listen<{ id: string; code: number | null; name: string }>('process-exited', (event) => {
       const { id, code } = event.payload;
@@ -74,6 +78,23 @@ export function App() {
     // Listen for open-command from tray menu
     listen<string>('open-command', (event) => {
       selectedCommand.value = event.payload;
+    });
+
+    // Listen for commands-changed from CLI socket
+    listen('commands-changed', async () => {
+      const cmds = await api.getCommands();
+      commands.value = cmds;
+      // Refresh statuses too
+      const statusPromises = cmds.map(async (cmd) => {
+        const status = await api.getStatus(cmd.id);
+        return [cmd.id, status] as const;
+      });
+      const results = await Promise.all(statusPromises);
+      const newStatuses: Record<string, typeof results[0][1]> = {};
+      for (const [id, status] of results) {
+        newStatuses[id] = status;
+      }
+      statuses.value = newStatuses;
     });
 
     // Listen for quit confirmation request
@@ -113,13 +134,16 @@ export function App() {
     isFormOpen.value = true;
   };
 
+  const handleDragHeader = async (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    if (isUiOnly) return;
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    getCurrentWindow().startDragging();
+  };
+
   return (
     <div class="app">
-      <header class="app-header" onMouseDown={(e) => {
-        if (!(e.target as HTMLElement).closest('button')) {
-          getCurrentWindow().startDragging();
-        }
-      }}>
+      <header class="app-header" onMouseDown={handleDragHeader}>
         <h1>Termina</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {runningCount.value > 0 && (

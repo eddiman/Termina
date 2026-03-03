@@ -14,8 +14,9 @@ fn sync_pid_file(state: &AppState) {
     }
 }
 
-#[tauri::command]
-pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+// ── Core logic functions (used by both Tauri IPC and socket handler) ──
+
+pub fn do_start_command(id: &str, state: &AppState, app_handle: Option<&tauri::AppHandle>) -> Result<(), String> {
     let (cmd_entry, env) = {
         let commands = state.commands.lock().map_err(|e| e.to_string())?;
         let cmd = commands.iter().find(|c| c.id == id).cloned();
@@ -28,22 +29,22 @@ pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, A
     // Check if already running
     {
         let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
-        if let Some(proc) = processes.get_mut(&id) {
+        if let Some(proc) = processes.get_mut(id) {
             if matches!(check_process_status(&mut proc.child), ProcessCheckResult::Running) {
                 return Err("Command is already running".to_string());
             }
-            processes.remove(&id);
+            processes.remove(id);
         }
     }
 
     // Clear exit info
     if let Ok(mut exit_info) = state.exit_info.lock() {
-        exit_info.remove(&id);
+        exit_info.remove(id);
     }
 
     // Init log buffer
     if let Ok(mut logs) = state.logs.lock() {
-        logs.insert(id.clone(), LogBuffer::new(500));
+        logs.insert(id.to_string(), LogBuffer::new(500));
     }
 
     // Read shell settings
@@ -56,12 +57,12 @@ pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, A
     let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env, &shell_path, &init_script)?;
 
     // Start log readers
-    spawn_log_reader(id.clone(), &mut spawned.child, state.logs.clone());
+    spawn_log_reader(id.to_string(), &mut spawned.child, state.logs.clone());
 
     {
         let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
         processes.insert(
-            id,
+            id.to_string(),
             RunningProcess {
                 pgid: spawned.pgid,
                 child: spawned.child,
@@ -69,47 +70,49 @@ pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, A
         );
     }
 
-    sync_pid_file(&state);
-    tray::update_tray_menu(&app);
+    sync_pid_file(state);
+    if let Some(app) = app_handle {
+        tray::update_tray_menu(app);
+    }
 
     Ok(())
 }
 
-#[tauri::command]
-pub async fn stop_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub fn do_stop_command(id: &str, state: &AppState, app_handle: Option<&tauri::AppHandle>) -> Result<(), String> {
     {
         let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
 
-        if let Some(proc) = processes.get(&id) {
+        if let Some(proc) = processes.get(id) {
             kill_process_group(proc.pgid)?;
         }
-        processes.remove(&id);
+        processes.remove(id);
     }
 
     // Clear exit info on manual stop
     if let Ok(mut exit_info) = state.exit_info.lock() {
-        exit_info.remove(&id);
+        exit_info.remove(id);
     }
 
-    sync_pid_file(&state);
-    tray::update_tray_menu(&app);
+    sync_pid_file(state);
+    if let Some(app) = app_handle {
+        tray::update_tray_menu(app);
+    }
 
     Ok(())
 }
 
-#[tauri::command]
-pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub fn do_restart_command(id: &str, state: &AppState, app_handle: Option<&tauri::AppHandle>) -> Result<(), String> {
     // Stop first
     {
         let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
-        if let Some(proc) = processes.remove(&id) {
+        if let Some(proc) = processes.remove(id) {
             let _ = kill_process_group(proc.pgid);
         }
     }
 
     // Clear exit info
     if let Ok(mut exit_info) = state.exit_info.lock() {
-        exit_info.remove(&id);
+        exit_info.remove(id);
     }
 
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -126,7 +129,7 @@ pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_,
 
     // Init log buffer
     if let Ok(mut logs) = state.logs.lock() {
-        logs.insert(id.clone(), LogBuffer::new(500));
+        logs.insert(id.to_string(), LogBuffer::new(500));
     }
 
     // Read shell settings
@@ -138,12 +141,12 @@ pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_,
     let mut spawned = spawn_command(&cmd_entry.cwd, &cmd_entry.command, &env, &shell_path, &init_script)?;
 
     // Start log readers
-    spawn_log_reader(id.clone(), &mut spawned.child, state.logs.clone());
+    spawn_log_reader(id.to_string(), &mut spawned.child, state.logs.clone());
 
     {
         let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
         processes.insert(
-            id,
+            id.to_string(),
             RunningProcess {
                 pgid: spawned.pgid,
                 child: spawned.child,
@@ -151,23 +154,102 @@ pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_,
         );
     }
 
-    sync_pid_file(&state);
-    tray::update_tray_menu(&app);
+    sync_pid_file(state);
+    if let Some(app) = app_handle {
+        tray::update_tray_menu(app);
+    }
 
     Ok(())
 }
 
-#[tauri::command]
-pub fn get_shell_settings(state: State<'_, AppState>) -> Result<ShellSettings, String> {
+pub fn do_get_commands(state: &AppState) -> Result<Vec<CommandEntry>, String> {
+    let commands = state.commands.lock().map_err(|e| e.to_string())?;
+    Ok(commands.clone())
+}
+
+pub fn do_get_status(id: &str, state: &AppState) -> Result<ProcessStatus, String> {
+    let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
+
+    if let Some(proc) = processes.get_mut(id) {
+        match check_process_status(&mut proc.child) {
+            ProcessCheckResult::Running => return Ok(ProcessStatus::Running),
+            ProcessCheckResult::Exited(code) => {
+                if let Ok(commands) = state.commands.lock() {
+                    let name = commands
+                        .iter()
+                        .find(|c| c.id == id)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    if let Ok(mut exit_info) = state.exit_info.lock() {
+                        exit_info.insert(
+                            id.to_string(),
+                            crate::types::ProcessExitInfo {
+                                code,
+                                command_name: name,
+                            },
+                        );
+                    }
+                }
+                processes.remove(id);
+                return Ok(ProcessStatus::Exited { code });
+            }
+        }
+    }
+
+    if let Ok(exit_info) = state.exit_info.lock() {
+        if let Some(info) = exit_info.get(id) {
+            return Ok(ProcessStatus::Exited { code: info.code });
+        }
+    }
+
+    Ok(ProcessStatus::Stopped)
+}
+
+pub fn do_get_logs(id: &str, state: &AppState) -> Result<Vec<LogLine>, String> {
+    let logs = state.logs.lock().map_err(|e| e.to_string())?;
+    if let Some(buf) = logs.get(id) {
+        Ok(buf.lines.iter().cloned().collect())
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+pub fn do_add_command(
+    name: String,
+    cwd: String,
+    command: String,
+    command_type: Option<CommandType>,
+    tags: Option<Vec<String>>,
+    state: &AppState,
+) -> Result<CommandEntry, String> {
+    let entry = CommandEntry {
+        id: Uuid::new_v4().to_string(),
+        name,
+        cwd,
+        command,
+        enabled: false,
+        env: HashMap::new(),
+        health_check_url: None,
+        command_type: command_type.unwrap_or_default(),
+        tags: tags.unwrap_or_default(),
+    };
+
+    let mut commands = state.commands.lock().map_err(|e| e.to_string())?;
+    commands.push(entry.clone());
+    config::save_commands(&commands)?;
+
+    Ok(entry)
+}
+
+pub fn do_get_shell_settings(state: &AppState) -> Result<ShellSettings, String> {
     let settings = state.shell_settings.lock().map_err(|e| e.to_string())?;
     Ok(settings.clone())
 }
 
-#[tauri::command]
-pub fn update_shell_settings(
+pub fn do_update_shell_settings(
     shell_path: Option<String>,
     init_script: Option<String>,
-    state: State<'_, AppState>,
+    state: &AppState,
 ) -> Result<(), String> {
     let new_settings = ShellSettings {
         shell_path,
@@ -179,61 +261,50 @@ pub fn update_shell_settings(
     Ok(())
 }
 
+// ── Tauri command wrappers (thin wrappers around do_* functions) ──
+
+#[tauri::command]
+pub async fn start_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    do_start_command(&id, &state, Some(&app))
+}
+
+#[tauri::command]
+pub async fn stop_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    do_stop_command(&id, &state, Some(&app))
+}
+
+#[tauri::command]
+pub async fn restart_command(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    do_restart_command(&id, &state, Some(&app))
+}
+
+#[tauri::command]
+pub fn get_shell_settings(state: State<'_, AppState>) -> Result<ShellSettings, String> {
+    do_get_shell_settings(&state)
+}
+
+#[tauri::command]
+pub fn update_shell_settings(
+    shell_path: Option<String>,
+    init_script: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    do_update_shell_settings(shell_path, init_script, &state)
+}
+
 #[tauri::command]
 pub fn get_commands(state: State<'_, AppState>) -> Result<Vec<CommandEntry>, String> {
-    let commands = state.commands.lock().map_err(|e| e.to_string())?;
-    Ok(commands.clone())
+    do_get_commands(&state)
 }
 
 #[tauri::command]
 pub fn get_status(id: String, state: State<'_, AppState>) -> Result<ProcessStatus, String> {
-    let mut processes = state.processes.lock().map_err(|e| e.to_string())?;
-
-    if let Some(proc) = processes.get_mut(&id) {
-        match check_process_status(&mut proc.child) {
-            ProcessCheckResult::Running => return Ok(ProcessStatus::Running),
-            ProcessCheckResult::Exited(code) => {
-                // Record exit info
-                if let Ok(commands) = state.commands.lock() {
-                    let name = commands
-                        .iter()
-                        .find(|c| c.id == id)
-                        .map(|c| c.name.clone())
-                        .unwrap_or_default();
-                    if let Ok(mut exit_info) = state.exit_info.lock() {
-                        exit_info.insert(
-                            id.clone(),
-                            crate::types::ProcessExitInfo {
-                                code,
-                                command_name: name,
-                            },
-                        );
-                    }
-                }
-                processes.remove(&id);
-                return Ok(ProcessStatus::Exited { code });
-            }
-        }
-    }
-
-    // Check if we have exit info for this command
-    if let Ok(exit_info) = state.exit_info.lock() {
-        if let Some(info) = exit_info.get(&id) {
-            return Ok(ProcessStatus::Exited { code: info.code });
-        }
-    }
-
-    Ok(ProcessStatus::Stopped)
+    do_get_status(&id, &state)
 }
 
 #[tauri::command]
 pub fn get_logs(id: String, state: State<'_, AppState>) -> Result<Vec<LogLine>, String> {
-    let logs = state.logs.lock().map_err(|e| e.to_string())?;
-    if let Some(buf) = logs.get(&id) {
-        Ok(buf.lines.iter().cloned().collect())
-    } else {
-        Ok(Vec::new())
-    }
+    do_get_logs(&id, &state)
 }
 
 #[tauri::command]
@@ -359,10 +430,7 @@ pub fn kill_orphaned_processes() -> Result<u32, String> {
     }
     let mut killed = 0u32;
     for pgid in &pgids {
-        // Check if the process group is still alive before killing
         if nix::sys::signal::killpg(nix::unistd::Pid::from_raw(*pgid), None).is_ok() {
-            // Verify the process was spawned by Termina (sh -c) to avoid killing
-            // unrelated processes that reused the PID
             let is_termina_process = std::process::Command::new("ps")
                 .args(["-p", &pgid.to_string(), "-o", "command="])
                 .output()
@@ -413,7 +481,6 @@ pub fn kill_by_ports(ports: String, state: State<'_, AppState>) -> Result<u32, S
         return Ok(0);
     }
 
-    // Collect known Termina PGIDs to scope kills
     let known_pgids: std::collections::HashSet<i32> = if let Ok(processes) = state.processes.lock() {
         processes.values().map(|p| p.pgid).collect()
     } else {
@@ -423,7 +490,6 @@ pub fn kill_by_ports(ports: String, state: State<'_, AppState>) -> Result<u32, S
     let mut killed_pids = std::collections::HashSet::new();
 
     for port in &port_list {
-        // Use lsof to find PIDs listening on this port
         let output = std::process::Command::new("lsof")
             .args(["-i", &format!(":{}", port), "-t"])
             .output();
@@ -435,7 +501,6 @@ pub fn kill_by_ports(ports: String, state: State<'_, AppState>) -> Result<u32, S
                     if pid <= 0 || !killed_pids.insert(pid) {
                         continue;
                     }
-                    // Only kill if the process belongs to a known Termina process group
                     let pgid = nix::unistd::getpgid(Some(nix::unistd::Pid::from_raw(pid)));
                     let belongs_to_termina = match pgid {
                         Ok(pg) => known_pgids.contains(&pg.as_raw()),
@@ -454,7 +519,6 @@ pub fn kill_by_ports(ports: String, state: State<'_, AppState>) -> Result<u32, S
         }
     }
 
-    // Give processes a moment then force kill any remaining
     if !killed_pids.is_empty() {
         std::thread::sleep(std::time::Duration::from_millis(300));
         for pid in &killed_pids {
@@ -482,13 +546,13 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Kill all running processes
     if let Ok(mut processes) = state.processes.lock() {
         for (_, proc) in processes.drain() {
             let _ = kill_process_group(proc.pgid);
         }
     }
     config::clear_running_pids();
+    let _ = std::fs::remove_file(crate::socket::socket_path());
     app.exit(0);
     Ok(())
 }

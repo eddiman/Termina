@@ -70,14 +70,6 @@ export function CommandDialog() {
     }
   };
 
-  const handleRestart = async () => {
-    if (isRunning) {
-      setConfirmAction('restart');
-      return;
-    }
-    doRestart();
-  };
-
   const doRestart = async () => {
     setConfirmAction(null);
     setIsRestarting(true);
@@ -160,7 +152,7 @@ export function CommandDialog() {
           {!isOneTime && (
             <button
               class="btn-secondary"
-              onClick={handleRestart}
+              onClick={doRestart}
               disabled={isRestarting}
             >
               {isRestarting ? <span class="spinner" /> : 'Restart'}
@@ -232,6 +224,7 @@ export function CommandDialog() {
           />
         )}
         {confirmAction === 'restart' && (
+          /* TODO: Remove later */
           <ConfirmDialog
             title="Restart Command"
             message={`"${command.name}" is currently running. Restart it?`}
