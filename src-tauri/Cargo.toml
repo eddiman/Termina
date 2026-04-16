@@ -28,5 +28,5 @@ ureq = "2"
 clap = { version = "4", features = ["derive"] }
 
 [[bin]]
-name = "termina"
+name = "termina-cli"
 path = "src/cli_main.rs"
