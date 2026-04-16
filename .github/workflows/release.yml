@@ -37,6 +37,15 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Termina ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install.'
+          releaseBody: |
+            ## Install
+
+            1. Download and extract `Termina_aarch64.app.tar.gz`
+            2. Move `Termina.app` to `/Applications`
+            3. Remove the quarantine flag (required for unsigned apps):
+               ```
+               xattr -cr /Applications/Termina.app
+               ```
+            4. Open Termina
           releaseDraft: false
           prerelease: false
